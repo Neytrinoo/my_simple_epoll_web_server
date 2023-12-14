@@ -14,6 +14,7 @@ typedef enum {
     JPEG_FE,
     SWF_FE,
     GIF_FE,
+    PDF_FE,
     UNDEFINED_FE
 } file_extension_t;
 

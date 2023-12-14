@@ -8,23 +8,79 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <sys/wait.h>
+#include <limits.h>
+#include <sys/resource.h>
 
 #include "http.h"
 #include "file_reader.h"
 
-#include "epool_worker.h"
+#include "epoll_worker.h"
 #include "logger.h"
+#include "poll_worker.h"
 
 char *ROOT = "/home/dmitriy/vuzic/network/course_work/static";
 
 #define MAX_CONN 4096
-#define COUNT_WORKER_PROCESS 1
-#define PORT 9090
 
-int main() {
+int COUNT_WORKER_PROCESS = 1;
+int PORT = 9090;
+bool IS_POLL = false;
+
+void set_port(char *argv[]) {
+    PORT = atoi(argv[1]);;
+}
+
+void set_count_workers(char *argv[]) {
+    COUNT_WORKER_PROCESS = atoi(argv[2]);
+    if (COUNT_WORKER_PROCESS > 100) {
+        exit(1);
+    }
+}
+
+void set_root_dir(char *argv[]) {
+    ROOT = argv[3];
+}
+
+void set_is_poll(char *argv[]) {
+    if (!strcmp(argv[4], "true")) {
+        IS_POLL = true;
+    } else {
+        IS_POLL = false;
+    }
+}
+
+void set_params(char *argv[]) {
+    set_port(argv);
+    set_count_workers(argv);
+    set_root_dir(argv);
+    set_is_poll(argv);
+}
+
+// main <port> <count_workers> <root_dir> <is_poll>
+int main(int argc, char *argv[]) {
     int listen_sock;
     pid_t worker_pids[COUNT_WORKER_PROCESS];
     set_log_file(stdout);
+
+    if (argc != 5) {
+        LOG(FATAL, "error args");
+        exit(1);
+    }
+
+    set_params(argv);
+
+    struct rlimit rlim;
+    rlim.rlim_cur = rlim.rlim_max = COUNT_WORKER_PROCESS * (MAX_CONN + 1);
+    if (setrlimit(RLIMIT_NOFILE, &rlim) < 0) {
+        if (errno == EPERM) {
+            LOG(FATAL, "You need to run as root or have "
+                "CAP_SYS_RESOURCE set, or are asking for more "
+                "file descriptors than the system can offer");
+            exit(1);
+        } else {
+            LOG(FATAL, "setrlimit error: %s", strerror(errno));
+        }
+    }
 
     struct sockaddr_in server_addr;
     if ((listen_sock = socket(AF_INET, SOCK_STREAM, 0)) == -1) {
@@ -58,26 +114,41 @@ int main() {
     //start(listen_sock);
     pid_t main_pid = getpid();
     signal(SIGPIPE, SIG_IGN);
+    sigset_t mask;
+    sigemptyset(&mask);
+    sigaddset(&mask, SIGHUP);
+    sigaddset(&mask, SIGTERM);
+    sigaddset(&mask, SIGUSR1);
+    sigaddset(&mask, SIGUSR2);
+    sigaddset(&mask, SIGCHLD);
 
-    for (int i = 0; i < COUNT_WORKER_PROCESS; ++i) {
+    for (int i = 0; i < COUNT_WORKER_PROCESS-1; ++i) {
         pid_t pid = fork();
         if (pid == -1) {
             LOG(FATAL, "cannot fork, %s", strerror(errno));
             return -1;
         }
         if (pid != 0) {
-            LOG(INFO, "create worker process, pid %d", pid);
             worker_pids[i] = pid;
         } else {
-            start(listen_sock);
+            if (IS_POLL) {
+                start_poll(listen_sock);
+            } else {
+                start(listen_sock);
+            }
             break;
         }
     }
 
     if (getpid() == main_pid) {
         LOG(INFO, "server start listening, port: %d", PORT);
-        start(listen_sock);
-        for (int i = 0; i < COUNT_WORKER_PROCESS; ++i) {
+        if (IS_POLL) {
+            LOG(DEBUG, "start poll");
+            start_poll(listen_sock);
+        } else {
+            start(listen_sock);
+        }
+        for (int i = 0; i < COUNT_WORKER_PROCESS-1; ++i) {
             waitpid(worker_pids[i], NULL, 0);
         }
     }

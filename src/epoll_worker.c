@@ -7,11 +7,11 @@
 #include <string.h>
 #include <errno.h>
 
-#include "epool_worker.h"
+#include "epoll_worker.h"
 #include "connection.h"
 #include "logger.h"
 
-#define MAX_EVENTS 128
+#define MAX_EVENTS 4096
 
 void start(int listen_sock) {
     int epoll_fd, count_fds;
@@ -27,7 +27,7 @@ void start(int listen_sock) {
     }
 
     struct epoll_event ev_listen_sock;
-    ev_listen_sock.events = EPOLLIN | EPOLLEXCLUSIVE;
+    ev_listen_sock.events = EPOLLIN;
     ev_listen_sock.data.fd = listen_sock;
 
     if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, listen_sock, &ev_listen_sock) == -1) {
@@ -41,6 +41,17 @@ void start(int listen_sock) {
         }
 
         for (int i = 0; i < count_fds; ++i) {
+            if (events[i].events & ~(EPOLLIN | EPOLLOUT)) {
+                connection_t *c = events[i].data.ptr;
+                if (c != NULL) {
+                    struct epoll_event e;
+                    epoll_ctl(epoll_fd, EPOLL_CTL_DEL, c->fd, &e);
+                    clear_connection(c);
+                }
+
+                continue;
+            }
+
             if (events[i].data.fd == listen_sock) {
                 // ассептим соединение
                 connection_t *connection = accept_connection(connections, listen_sock, MAX_EVENTS);
@@ -48,7 +59,7 @@ void start(int listen_sock) {
                     LOG(WARNING, "cannot accept connection: %s", strerror(errno));
                     continue;
                 }
-                LOG(INFO, "accept1 connection, fd %d", connection->fd);
+                LOG(INFO, "accept connection, fd %d", connection->fd);
 
                 // добавляем его в массив epool_event'ов
                 struct epoll_event ev_conn;
@@ -60,9 +71,35 @@ void start(int listen_sock) {
                     LOG(FATAL, "cannot add client event to epoll events: %s", strerror(errno));
                     exit(1);
                 }
-                LOG(INFO, "accept2 connection, fd %d", connection->fd);
+            } else {
+                connection_t *c = events[i].data.ptr;
+                connection_serve_processing_t serve_result = connection_serve(c);
+                if (serve_result != SERVE_CONTINUE) {
+                    clear_connection(c);
+                    continue;
+                }
 
-            } else if (events[i].events & EPOLLIN) { // есть данные на чтение
+                struct epoll_event ev_conn;
+                ev_conn.data.fd = c->fd;
+                ev_conn.data.ptr = c;
+
+                switch (c->status) {
+                    case RECV_HEADER:
+                        ev_conn.events = EPOLLIN | EPOLLET;
+                        break;
+                    case SEND_BODY:
+                    case SEND_HEADER:
+                        ev_conn.events = EPOLLOUT | EPOLLET;
+                        break;
+                }
+
+                if (epoll_ctl(epoll_fd, EPOLL_CTL_MOD, c->fd, &ev_conn) < 0) {
+                    LOG(FATAL, "cannot add client event to epoll events: %s", strerror(errno));
+                    exit(1);
+                }
+            }
+
+            /*if (events[i].events & EPOLLIN) { // есть данные на чтение
                 connection_t *c = events[i].data.ptr;
                 connection_serve_processing_t serve_result = connection_serve(c);
                 if (serve_result == SERVE_OK) {
@@ -104,7 +141,7 @@ void start(int listen_sock) {
                 }
             } else {
                 clear_connection(events[i].data.ptr);
-            }
+            }*/
         }
     }
 

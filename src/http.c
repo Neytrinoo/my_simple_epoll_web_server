@@ -63,14 +63,15 @@ http_resp_t *new_http_resp(http_req_t *req) {
         }
     }
 
-    /*expand_string(resp->resp_header);
+    expand_string(resp->resp_header);
     if (resp->status_code == S_OK) {
-        resp->resp_header->length = sprintf(resp->resp_header->data, "HTTP/1.0 %d %s\r\nContent-Type: %s\r\nContent-Length: %ld\r\n\r\n", resp->status_code,
+        resp->resp_header->length = sprintf(resp->resp_header->data, "HTTP/1.0 %d %s\r\nContent-Type: %s\r\nContent-Length: %ld\r\nConnection: close\r\n\r\n", resp->status_code,
                                             get_code_string(resp->status_code), get_file_extension_string(resp->req->file_type->file_extension), resp->req->file_type->file_length);
+        //add_substr(resp->resp_header, "\r\n\r\n", 4);
     } else {
         resp->resp_header->length = sprintf(resp->resp_header->data, "HTTP/1.0 %d %s\r\n\r\n", resp->status_code, get_code_string(resp->status_code));
-    }*/
-    char code_buf[HTTP_BUF_SIZE];
+    }
+    /*char code_buf[HTTP_BUF_SIZE];
     sprintf(code_buf, "HTTP/1.1 %d %s\r\n", resp->status_code, get_code_string(resp->status_code));
     add_substr(resp->resp_header, code_buf, strlen(code_buf));
     memset(code_buf, '\0', HTTP_BUF_SIZE);
@@ -81,7 +82,7 @@ http_resp_t *new_http_resp(http_req_t *req) {
         add_substr(resp->resp_header, code_buf, strlen(code_buf));
     } else {
         add_substr(resp->resp_header, "\r\n", 2);
-    }
+    }*/
 
     return resp;
 }
@@ -194,6 +195,8 @@ parse_result_t parse_http_header(http_req_t *result_req) {
         add_substr(result_req->file_type->file_path, buf, buf_offset);
     }
     add_substr(result_req->file_type->file_path, "\0", 1);
+
+    add_substr(result_req->file_type->raw_file_path, result_req->file_type->file_path->data, result_req->file_type->file_path->length);
 
     // парсим путь до файла, обрабатывая внутри ошибки пути (в т.ч. отсутствия файла)
     file_parse_result_t file_parse_result = parse_file_path(result_req->file_type);

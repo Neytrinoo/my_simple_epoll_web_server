@@ -7,4 +7,4 @@ include_directories(include)
 
 aux_source_directory(src SRC)
 
-add_executable(course_work  ${SRC} src/main.c src/file.c include/file.h src/file_reader.c include/file_reader.h src/epool_worker.c include/epool_worker.h src/connection.c include/connection.h src/logger.c include/logger.h)
+add_executable(course_work  ${SRC})

@@ -3,6 +3,9 @@
 #include <errno.h>
 
 #include "file.h"
+#include "logger.h"
+
+#define BASE_PAGE "/index.html"
 
 file_type_t *new_file_type() {
     file_type_t *new = malloc(sizeof(file_type_t));
@@ -52,6 +55,8 @@ file_extension_t get_file_extension(char *filename, int n) {
         return SWF_FE;
     } else if (strcmp(dot, "gif") == 0) {
         return GIF_FE;
+    } else if (strcmp(dot, "pdf") == 0) {
+        return PDF_FE;
     }
 
     return UNDEFINED_FE;
@@ -74,6 +79,8 @@ char *get_file_extension_string(file_extension_t fe) {
             return "application/x-shockwave-flash";
         case GIF_FE:
             return "image/gif";
+        case PDF_FE:
+            return "application/pdf";
     }
 
     return "undefined";
@@ -85,7 +92,6 @@ int set_file_size(file_type_t *file_type) {
     string_t *full_path_to_file = new_string();
     add_substr(full_path_to_file, ROOT, strlen(ROOT));
     add_substr(full_path_to_file, file_type->file_path->data, file_type->file_path->length);
-    add_substr(file_type->raw_file_path, file_type->file_path->data, file_type->file_path->length);
 
     struct stat st;
     if (stat(full_path_to_file->data, &st) == 0) {
@@ -107,6 +113,12 @@ file_parse_result_t parse_file_path(file_type_t *file_type) {
 
     if (file_path->data[0] != '/') {
         return INVALID_F;
+    }
+
+    if (file_path->data[0] == '/' && file_path->length == 2) {
+        memcpy(file_path->data, BASE_PAGE, strlen(BASE_PAGE));
+        file_path->length = strlen(BASE_PAGE);
+        add_substr(file_path, "\0", 1);
     }
 
     int now_position = 1;

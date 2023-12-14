@@ -2,6 +2,7 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <memory.h>
+#include <errno.h>
 #include "connection.h"
 #include "logger.h"
 
@@ -31,7 +32,7 @@ void clear_connection(connection_t *connection) {
     connection->fd = -1;
 }
 
-connection_t *accept_connection(connection_t *connections, int listen_sock, size_t count_connections) {
+int accept_connection_poll(connection_t *connections, int listen_sock, size_t count_connections) {
     connection_t *c = NULL;
     size_t i;
 
@@ -45,6 +46,41 @@ connection_t *accept_connection(connection_t *connections, int listen_sock, size
     }
 
     if ((c->fd = accept(listen_sock, (struct sockaddr *) &c->client_addr, &(socklen_t) {sizeof(c->client_addr)})) < 0) {
+        return -1;
+    }
+
+    LOG(WARNING, "new fd = %d", c->fd);
+
+
+    if (set_nonblocking(c->fd)) {
+        return -1;
+    }
+
+    fill_connection(c, c->fd);
+
+    return i;
+}
+
+connection_t *accept_connection(connection_t *connections, int listen_sock, size_t count_connections) {
+    connection_t *c = NULL;
+    size_t i;
+
+    // ищем первый свободный коннекшн
+    for (i = 0; i < count_connections; i++) {
+        if (connections[i].fd == -1) {
+            c = &connections[i];
+            c->fd = 1;
+            break;
+        }
+    }
+
+    if (i == count_connections) {
+        LOG(WARNING, "no free connections");
+        return NULL;
+    }
+
+    if ((c->fd = accept(listen_sock, (struct sockaddr *) &c->client_addr, &(socklen_t) {sizeof(c->client_addr)})) < 0) {
+        LOG(ERROR, "cannot accept: %s", strerror(errno));
         return NULL;
     }
 
@@ -94,9 +130,9 @@ connection_serve_processing_t connection_serve(connection_t *connection) {
                     }
                     break;
                 case RW_CONTINUE:
-                    break;
+                    return SERVE_CONTINUE;
                 default:
-                    return SERVE_OK;
+                    return SERVE_STOP;
             }
         }
         case SEND_BODY: { // отправка тела

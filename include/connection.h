@@ -25,6 +25,8 @@ typedef struct {
     struct sockaddr_in client_addr;
 } connection_t;
 
+int accept_connection_poll(connection_t *connections, int listen_sock, size_t count_connections);
+
 connection_t *accept_connection(connection_t *connections, int listen_sock, size_t count_connections);
 
 int set_nonblocking(int sockfd);
